@@ -56,10 +56,6 @@ class CmdlineTest(unittest.TestCase):
         File = MockFile
         MockFile._file_contents.clear()
 
-    def reset_logger(self):
-        if getattr(luigi.interface.setup_interface_logging, "has_run", False):
-            luigi.interface.setup_interface_logging.has_run = False
-
     def test_expose_deprecated(self):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -86,18 +82,16 @@ class CmdlineTest(unittest.TestCase):
         luigi.run(['--local-scheduler', 'NonAmbiguousClass'])
         self.assertTrue(NonAmbiguousClass.has_run)
 
-    def test_setup_interface_logging(self):
-        self.reset_logger()
-        logger = logging.getLogger('luigi-interface')
-        self.assertEqual(0, len(logger.handlers))
+    @mock.patch("logging.getLogger")
+    @mock.patch("logging.StreamHandler")
+    def test_setup_interface_logging(self, handler, logger):
+        handler.return_value = mock.Mock(name="stream_handler")
+        with mock.patch("luigi.interface.setup_interface_logging.has_run", new=False):
+            luigi.interface.setup_interface_logging()
+            self.assertEqual([mock.call(handler.return_value)], logger.return_value.addHandler.call_args_list)
 
-        self.reset_logger()
-        luigi.interface.setup_interface_logging()
-        logger = logging.getLogger('luigi-interface')
-        self.assertEqual(1, len(logger.handlers))
-
-        self.reset_logger()
-        self.assertRaises(ConfigParser.NoSectionError, luigi.interface.setup_interface_logging, '/blah')
+        with mock.patch("luigi.interface.setup_interface_logging.has_run", new=False):
+            self.assertRaises(ConfigParser.NoSectionError, luigi.interface.setup_interface_logging, '/blah')
 
     @mock.patch("warnings.warn")
     @mock.patch("luigi.interface.setup_interface_logging")
@@ -105,9 +99,13 @@ class CmdlineTest(unittest.TestCase):
         luigi.run(['Task', '--local-scheduler'])
         self.assertEqual([mock.call(None)], setup_mock.call_args_list)
 
-        luigi.interface.setup_interface_logging.call_args_list = []
-        luigi.run(['Task', '--local-scheduler', '--no-configure-logging'])
-        self.assertEqual([], setup_mock.call_args_list)
+        with mock.patch("luigi.configuration.get_config") as getconf:
+            getconf.return_value.get.return_value = None
+            getconf.return_value.get_boolean.return_value = True
+
+            luigi.interface.setup_interface_logging.call_args_list = []
+            luigi.run(['Task', '--local-scheduler'])
+            self.assertEqual([], setup_mock.call_args_list)
 
 if __name__ == '__main__':
     unittest.main()
