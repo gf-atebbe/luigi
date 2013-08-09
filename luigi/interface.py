@@ -15,6 +15,7 @@
 import worker
 import lock
 import logging
+import logging.config
 import rpc
 import optparse
 import scheduler
@@ -22,24 +23,29 @@ import warnings
 import configuration
 import task
 import parameter
+import os
 from task import Register
 
 
-def setup_interface_logging():
+def setup_interface_logging(conf_file=None):
     # use a variable in the function object to determine if it has run before
     if getattr(setup_interface_logging, "has_run", False):
         return
 
-    logger = logging.getLogger('luigi-interface')
-    logger.setLevel(logging.DEBUG)
+    if conf_file is None:
+        logger = logging.getLogger('luigi-interface')
+        logger.setLevel(logging.DEBUG)
 
-    streamHandler = logging.StreamHandler()
-    streamHandler.setLevel(logging.DEBUG)
+        streamHandler = logging.StreamHandler()
+        streamHandler.setLevel(logging.DEBUG)
 
-    formatter = logging.Formatter('%(levelname)s: %(message)s')
-    streamHandler.setFormatter(formatter)
+        formatter = logging.Formatter('%(levelname)s: %(message)s')
+        streamHandler.setFormatter(formatter)
 
-    logger.addHandler(streamHandler)
+        logger.addHandler(streamHandler)
+    else:
+        logging.config.fileConfig(conf_file)
+
     setup_interface_logging.has_run = True
 
 
@@ -113,6 +119,13 @@ class Interface(object):
             worker_scheduler_factory = WorkerSchedulerFactory()
 
         env_params = EnvironmentParamsContainer.env_params(override_defaults)
+
+        logging_conf = configuration.get_config().get('core', 'logging_conf_file', None)
+        if logging_conf is not None and not os.path.exists(logging_conf):
+            raise Exception("Error: Unable to locate specified logging configuration file!")
+
+        if not configuration.get_config().getboolean('core', 'no_configure_logging', False):
+            setup_interface_logging(logging_conf)
 
         if env_params.lock:
             lock.run_once(env_params.lock_pid_dir)
@@ -310,10 +323,9 @@ def run(cmdline_args=None, existing_optparse=None, use_optparse=False, main_task
     ''' Run from cmdline.
 
     The default parser uses argparse.
-    However for legacy reasons we support optparse that optinally allows for
+    However for legacy reasons we support optparse that optionally allows for
     overriding an existing option parser with new args.
     '''
-    setup_interface_logging()
     if use_optparse:
         interface = OptParseInterface(existing_optparse)
     else:
@@ -329,5 +341,4 @@ def build(tasks, worker_scheduler_factory=None, **env_params):
     Example
     luigi.build([MyTask1(), MyTask2()], local_scheduler=True)
     '''
-    setup_interface_logging()
     Interface.run(tasks, worker_scheduler_factory, env_params)
